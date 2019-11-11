@@ -1,0 +1,274 @@
+---
+title: "Mushiroom classification"
+Author: "Group 8"
+---
+
+
+```{r}
+install.packages(c("tidyverse", "ggplot2", "caTools", "mice", "caret", "MASS", "rpart", "rpart.plot", "leaps", "corrplot", "dummies", "klaR", "pROC", "randomForest"))
+library(tidyverse)
+library(ggplot2)# for making data visualization
+library(caTools) # for smaple split
+library(mice) # for impute missing data
+library(caret)# for train and Cross validation 
+library(MASS) # for LDA model
+library(rpart) # For decision tree model
+library(rpart.plot) # for decision tree map
+library(leaps) # for subset regression
+library(corrplot) # for correlation function
+library(dummies) # for one-hot encoding
+library(klaR) # for k-mode function/LDA partition map 
+library(pROC) # for ROC curve 
+library(randomForest) # for randomForest
+#load the mushrooms data
+mushrooms <- read.csv('mushrooms.csv')
+summary(mushrooms)
+str(mushrooms)
+levels(mushrooms$stalk.root)
+```
+
+```{r}
+# we can find veil.type has 1 class. it is possible to remove. 
+mushrooms$veil.type<-NULL
+# stalk.root has ? class. It means it is missing value. To prevent from recognizing ? as class. change to NA. 
+mushrooms$stalk.root <- as.character(mushrooms$stalk.root)
+mushrooms$stalk.root[mushrooms$stalk.root == "?"] <- NA
+mushrooms$stalk.root <- as.factor(mushrooms$stalk.root)
+#ADD class (u,z) - need to discuss
+#levels(mushrooms$stalk.root) <- c(levels(mushrooms$stalk.root), "u", "z")
+
+levels(mushrooms$stalk.root)
+summary(mushrooms$stalk.root)
+
+```
+
+```{r}
+# Deal with missing value. 
+#mice using polyreg method
+polyreg_mushrooms <- mice(mushrooms, m=5, seed=1, method = 'polyreg', print = FALSE)
+summary(polyreg_mushrooms)
+densityplot(polyreg_mushrooms, ~stalk.root)
+#mice using lda method
+lda_mushrooms <- mice(mushrooms, m=5, seed=1, method = 'lda', print = FALSE)
+summary(lda_mushrooms)
+densityplot(lda_mushrooms, ~stalk.root)
+
+# there are large differences according to Imputation method(Polyreg VS. LDA)
+# according to densityplot LDA seems to be more reasonable.
+data.lda_mushrooms <- complete(lda_mushrooms)
+
+levels(data.lda_mushrooms$stalk.root)
+summary(data.lda_mushrooms$stalk.root)
+
+```
+
+
+```{r}
+#To dealing with categotical variable, change categorical variable to numeric variable 
+#it is called label encoding refer to https://www.analyticsvidhya.com/blog/2015/11/easy-methods-deal-categorical-variables-predictive-modeling/ but there are some drawbacks in this method. There are other methods to deal with categorical varialbes such as one hot encoding and using dummyvarialbe. if, we apply one-hot endoing to this dataset, the number of total independatant variables will be 115 and it also has drawbacks such as multicollinearity. it is over our coverage. So, to make simply, we apply the label encoding method.)
+
+DF <- as.data.frame(unclass(data.lda_mushrooms))
+convert<-sapply(DF,is.factor)
+d1<-sapply(DF[,convert],unclass)    
+data.lda_mushrooms<-cbind(d1[,!convert],d1)        
+data.lda_mushrooms <- data.frame(data.lda_mushrooms)
+head(data.lda_mushrooms)
+str(data.lda_mushrooms)
+data.lda_mushrooms <- data.frame(data.lda_mushrooms)
+str(data.lda_mushrooms)
+data.lda_mushrooms$class<-ifelse(data.lda_mushrooms$class=='2',0,1)
+
+data.lda_mushrooms[,-1] = scale(data.lda_mushrooms[,-1], center = T, scale = T) # scale the data
+
+# Here is code for one-hot encoding (just for reference)
+data.lda_mushrooms.onehot <- complete(lda_mushrooms)
+clas1 <- data.lda_mushrooms.onehot$class
+data.lda_mushrooms.onehot$class <- NULL
+data.lda_mushrooms.onehot <- dummy.data.frame(data.lda_mushrooms.onehot, names=colnames(data.lda_mushrooms.onehot), sep="_")
+data.lda_mushrooms.onehot$class <- clas1
+str(data.lda_mushrooms.onehot)
+
+#relation between variables
+
+a <- cor(data.lda_mushrooms)
+corrplot(a, method = "color")
+
+#a1 <- cor(data.lda_mushrooms.onehot)
+#corrplot(a1, method = "color")
+
+# Make the target variable to factor
+data.lda_mushrooms$class[data.lda_mushrooms$class==0] <- 'p'
+data.lda_mushrooms$class[data.lda_mushrooms$class==1] <- 'e'
+data.lda_mushrooms$class <- as.factor(data.lda_mushrooms$class)
+str(data.lda_mushrooms)
+
+
+#relationship with class and other variables.
+
+lda_data <- data.lda_mushrooms[,2:22]
+lda_class <- data.lda_mushrooms[,1]
+
+scales <- list(x=list(relation="free"),y=list(relation="free"), cex=0.6)
+
+featurePlot(x=lda_data, y=lda_class, plot="density",scales=scales,
+            layout = c(4,6), auto.key = list(columns = 2), pch = "|")
+
+```
+
+
+```{r}
+# vairable selection 
+
+#Best subset selection
+
+regfit.full=regsubsets(data.lda_mushrooms$class~., data.lda_mushrooms)
+summary(regfit.full)
+
+regfit.max = regsubsets(data.lda_mushrooms$class~., data.lda_mushrooms, nvmax=21)
+regsummary = summary(regfit.max)
+
+regsummary$rsq
+
+par(mfrow=c(2,2))
+plot(regsummary$rss, xlab="Number of variables", ylab="RSS", type='l')
+plot(regsummary$adjr2,xlab="Number of variables", ylab="Adjusted Rsq", type='l')
+
+which.max(regsummary$adjr2)
+points(19,regsummary$adjr2[19],col='red')
+
+#Forward and backward selection
+regfit.fwd=regsubsets(class~., data=data.lda_mushrooms, nvmax=21, method="forward")
+summary(regfit.fwd)
+
+regfit.bwd=regsubsets(class~., data=data.lda_mushrooms, nvmax=21, method="backward")
+summary(regfit.bwd)
+
+```
+
+```{r}
+# Use the best subset selection 
+# according to the best subset selection, the 19 variables are important without stalk.color.below.ring and cap.color
+
+data.lda_mushrooms1 <- data.lda_mushrooms
+data.lda_mushrooms1$stalk.color.below.ring <- NULL
+data.lda_mushrooms1$cap.color <- NULL
+#data.lda_mushrooms1 <- sapply(data.lda_mushrooms1, function(x) as.factor(as.numeric(x)))
+#data.lda_mushrooms1 <- data.frame(data.lda_mushrooms1)
+#data.lda_mushrooms1$class<-ifelse(data.lda_mushrooms1$class=='2',0,1)
+#data.lda_mushrooms1$class[data.lda_mushrooms1$class==0] <- 'p'
+#data.lda_mushrooms1$class[data.lda_mushrooms1$class==1] <- 'e'
+#data.lda_mushrooms1$class <- as.factor(data.lda_mushrooms1$class)
+str(data.lda_mushrooms1)
+```
+
+
+```{r}
+#Divide training set and test set. Validation set
+set.seed(1024) 
+sample = sample.split(data.lda_mushrooms1$class, SplitRatio = .7)
+lx_train = subset(data.lda_mushrooms1, sample == TRUE)
+lx_test = subset(data.lda_mushrooms1, sample == FALSE)
+ly_train<-lx_train$class
+ly_test <-lx_test$class
+lx_train$class<-NULL
+lx_test$class<-NULL
+
+
+#Cross-validation (k-fold method using caret)
+
+#lda dataset
+l.cv10fold <- createMultiFolds(ly_train, k=10)
+lda.train.control <- trainControl(method = 'repeatedcv', number = 10, index=l.cv10fold)
+
+#-------------------------------------------------------
+
+```
+
+```{r}
+
+# ------------Model 1. Logistic Regression--------------
+#names(getModelInfo())
+#lda dataset - use numeric dataset
+l.logistic <- train(x=lx_train,y=ly_train,method="glm", 
+                    family="binomial", trControl=lda.train.control) # training set
+l.logistic
+summary(l.logistic)
+ly.logistic.predicted<-predict(l.logistic,lx_test) # predict by using test set
+varImp(l.logistic)
+df1 <- data.frame(test=ly_test,Pred=ly.logistic.predicted)
+confusionMatrix(table(df1$test,df1$Pred))
+plot(varImp(l.logistic),main="Logistic regression - Variable Importance Plot")
+
+# ------------Model 2. LDA--------------
+#lda dataset - use numeric dataset
+l.lda <- train(x=lx_train,y=ly_train,method="lda", trControl=lda.train.control) # training set
+l.lda
+varImp(l.lda)
+ly.lda.predicted<-predict(l.lda,lx_test) # predict by using test set
+df2 <- data.frame(test=ly_test,Pred=ly.lda.predicted)
+confusionMatrix(table(df2$test,df2$Pred))
+plot(varImp(l.lda),main="LDA - Variable Importance Plot")
+
+```
+
+
+
+```{r}
+#Changing all the categorical independent variables to numerical variables has intrisic drawbacks that deteriorate the model perforamance. Let's look at how to create a better model while maintaining categorical variables.
+
+#new validation set for tree method 
+cate_variable <- complete(lda_mushrooms)
+set.seed(1024) 
+sample = sample.split(cate_variable$class, SplitRatio = .7)
+cx_train = subset(cate_variable, sample == TRUE)
+cx_test = subset(cate_variable, sample == FALSE)
+cy_train<-cx_train$class
+cy_test <-cx_test$class
+cx_train$class<-NULL
+cx_test$class<-NULL
+
+#Cross-validation (k-fold method using caret)
+
+c.cv10fold <- createMultiFolds(cy_train, k=10)
+c.train.control <- trainControl(method = 'repeatedcv', number = 10, index=c.cv10fold)
+
+# ------------Model 3. Decision Tree----------------
+rpart.grid <- expand.grid(.cp=0)
+c.rpart <- train(x=cx_train,y=cy_train,method="rpart",tuneGrid=rpart.grid, trControl=c.train.control)
+c.rpart
+varImp(c.rpart)
+cy.rpart.predicted<-predict(c.rpart,cx_test)
+df3 <- data.frame(test=cy_test,Pred=cy.rpart.predicted)
+confusionMatrix(table(df3$test,df3$Pred))
+plot(varImp(c.rpart),main="Decision Tree - Variable Importance Plot")
+rpart.plot(c.rpart$finalModel, cex=0.6)
+
+# ------------Model4. Random Forest----------------
+
+c.rf <- train(x=cx_train,y=cy_train,method="rf", trControl=c.train.control)
+c.rf
+varImp(c.rf)
+cy.rf.predicted<-predict(c.rf,cx_test)
+df4 <- data.frame(test=cy_test,Pred=cy.rf.predicted)
+confusionMatrix(table(df4$test,df4$Pred))
+plot(varImp(c.rf),main="Random Forest - Variable Importance Plot")
+
+```
+
+```{r}
+# ---------------Model5. K-modes (extra) - unspervised learning ----------------
+# Unlike above methods, We also tried to use K-modes(unspervised learning) to see how well clustering works, in this case, and which category in variables are significant, yet couldn't find it meaningful enough to use for this case.
+
+set.seed(256)
+colnames(mushrooms)
+m_kmode <- kmodes(data = mushrooms[,c(6,10,20)], mode = 2, iter.max = 10) # chose 3 most important variables from above
+m_kmode
+table(factor(m_kmode$cluster), factor(mushrooms$class))
+m_kmode.pred <- m_kmode$cluster
+m_kmode.pred <- ifelse(m_kmode.pred == 1, "p", "e")
+m_kmode.pred <- as.factor(m_kmode.pred)
+summary(m_kmode.pred)
+confusionMatrix(m_kmode.pred, factor(mushrooms$class))
+# K-modes clustering only gives us 61.94% of accuracy, although we chose the three most important variables. Also, if we change the lable with the opposite way, the accuracy will become lower. This is too low accuracy considering that we are dealing with the matter of life and death depending on the decision of this method.
+
+```
