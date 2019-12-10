@@ -1,5 +1,5 @@
 # MUSHROOM-ClASSIFIER
-# Classify mushrooms as poisonous or non poisonous
+# Classify mushrooms as poisonous or non poisonous (R)
 
 # Mushroom Classification.RMD
 
