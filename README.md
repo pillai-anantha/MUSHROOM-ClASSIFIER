@@ -26,3 +26,5 @@
 *The Mushroom Classification.html is the knit version of the RMD file
 
 *Presentation.pptx contains insights from the data exploration and models built
+
+*Random forest with accuracy 100% was the best model
